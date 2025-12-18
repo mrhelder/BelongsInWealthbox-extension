@@ -27,16 +27,21 @@ function linkify(node) {
   node.replaceWith(span);
 }
 
-// Walk DOM once
+// Collect text nodes first
+const textNodes = [];
+
 const walker = document.createTreeWalker(
   document.body,
   NodeFilter.SHOW_TEXT,
   null
 );
 
-let textNode;
-while ((textNode = walker.nextNode())) {
-  linkify(textNode);
+let node;
+while ((node = walker.nextNode())) {
+  textNodes.push(node);
 }
+
+// Then process them
+textNodes.forEach(linkify);
 
 console.log("[tel-linker] ran");

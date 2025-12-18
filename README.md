@@ -4,7 +4,7 @@ Finally, a browswer extension that does what Wealthbox refuses to do: automatica
 
 ## Features
 
-- Detects phone numbers in various formats:
+- Detects phone numbers in various formats across your Wealthbox workspaces:
   - (123) 456-7890
   - 123-456-7890
   - 123.456.7890
@@ -12,27 +12,22 @@ Finally, a browswer extension that does what Wealthbox refuses to do: automatica
   - 1234567890
   - +1 (123) 456-7890
 - Converts them to clickable links that open in your system's default calling app
+- Privacy first and open source - this extension simply modifies the webpage's DOM file to automatically turn phone numbers into clickable links.
 ### That's it! That's all this does. Clean. Simple. Lightweight
 
 ## Installation
-
-1. Download directly from the Chrome or Edge extension stores
-   ---OR---
-1. Download or clone this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" in the top right
-4. Click "Load unpacked"
-5. Select the folder containing the extension files
-6. The extension will now be active on all web pages
+1. Download directly from the Chrome or Edge extension stores, OR
+2. Download or clone this repository
+3. Open Chrome and navigate to `chrome://extensions/`
+4. Enable "Developer mode" in the top right
+5. Click "Load unpacked"
+6. Select the folder containing the extension files
+7. The extension will now be active on all web pages
 
 ## Usage
 
-Once installed, the extension automatically runs on all web pages. Phone numbers will be converted to clickable links that you can click to initiate a call through your system's default calling application.
+Once installed, the extension runs automatically on all your Wealthbox workspaces, however you do have to refresh the Contact's profile page after you navigate to them each time.
 
 ## Permissions
 
 - **activeTab**: Required to access and modify content on web pages to convert phone numbers
-
-## Customization
-
-You can modify the `phonePatterns` array in `content-script.js` to add or adjust phone number formats specific to your region or needs.
