@@ -7,7 +7,7 @@
     "48": "icons/Wealthbox-icon-RGB-1 Blue.png",
     "128": "icons/Wealthbox-icon-RGB-1 Blue.png"
   },
-  "description": "Finally, a browswer extension that does what Wealthbox refuses to do: automatically converts Contact record phone numbers into clickable tel:// links.",
+  "description": "Automatically converts phone numbers in Wealthbox Contact records into clickable tel:// links.",
   "permissions": [
     "activeTab",
     "scripting"

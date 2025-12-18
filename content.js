@@ -1,4 +1,5 @@
 const phoneRegex = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const processedAddresses = new Set();
 
 function linkify(node) {
   if (node.nodeType !== Node.TEXT_NODE) return;
@@ -39,6 +40,11 @@ function processPhoneNumbers() {
   
   let processed = false;
   addressElements.forEach(el => {
+    const addressText = el.textContent;
+    
+    // Skip if we've already processed this exact address
+    if (processedAddresses.has(addressText)) return;
+    
     // Walk through text nodes in these elements
     const walker = document.createTreeWalker(
       el,
@@ -53,6 +59,7 @@ function processPhoneNumbers() {
     nodesToProcess.forEach(node => {
       if (phoneRegex.test(node.textContent)) {
         linkify(node);
+        processedAddresses.add(addressText);
         processed = true;
       }
     });
