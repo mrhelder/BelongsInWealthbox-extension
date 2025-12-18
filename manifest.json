@@ -1,17 +1,24 @@
 {
   "manifest_version": 3,
   "name": "BelongsInWealthbox",
-  "version": "1.0.6",
+  "version": "1.0.0",
+  "icons": {
+    "Wealthbox": "icons/Wealthbox-icon-RGB-1 Blue.svg"
+  },
   "description": "A Chrome browser extension for Wealthbox CRM that automatically converts Contact record phone numbers into clickable tel:// links! When clicked, your computer will attempt to open the system-default calling app.",
-  "permissions": ["activeTab"],
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_end"
+      "matches": [
+        "*.crmworkspace.com"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
     }
-  ],
-  "icons": {
-    "Wealthbox": "Wealthbox-icon-RGB-1 Blue.svg"
-  }
+  ]
 }
