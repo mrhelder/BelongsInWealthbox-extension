@@ -12,11 +12,12 @@ Finally, a browswer extension that does what Wealthbox refuses to do: automatica
   - 1234567890
   - +1 (123) 456-7890
 - Converts them to clickable links that open in your system's default calling app
-- Works on dynamically loaded content
-- Non-intrusive - preserves original formatting
+### That's it! That's all this does. Clean. Simple. Lightweight
 
 ## Installation
 
+1. Download directly from the Chrome or Edge extension stores
+   ---OR---
 1. Download or clone this repository
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" in the top right
