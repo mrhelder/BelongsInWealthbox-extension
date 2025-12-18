@@ -27,24 +27,28 @@ function linkify(node) {
   node.replaceWith(span);
 }
 
-// Collect text nodes first
-const textNodes = [];
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    // Collect text nodes first
+    const textNodes = [];
 
-const walker = document.createTreeWalker(
-  document.body,
-  NodeFilter.SHOW_TEXT,
-  null
-);
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      null
+    );
 
-let node;
-while ((node = walker.nextNode())) {
-  textNodes.push(node);
-}
+    let node;
+    while ((node = walker.nextNode())) {
+      textNodes.push(node);
+    }
 
-// Then process them
-textNodes.forEach(linkify);
+    // Then process them
+    textNodes.forEach(linkify);
 
-console.log("[tel-linker] ran");
+    console.log("[tel-linker] ran");
+  }, 1000);
+});
 
 // Observe for dynamically added content
 const observer = new MutationObserver((mutations) => {
