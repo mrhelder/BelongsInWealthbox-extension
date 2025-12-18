@@ -45,3 +45,21 @@ while ((node = walker.nextNode())) {
 textNodes.forEach(linkify);
 
 console.log("[tel-linker] ran");
+
+// Observe for dynamically added content
+const observer = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const newTextNodes = [];
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
+        let textNode;
+        while ((textNode = walker.nextNode())) {
+          newTextNodes.push(textNode);
+        }
+        newTextNodes.forEach(linkify);
+      }
+    });
+  });
+});
+observer.observe(document.body, { childList: true, subtree: true });
