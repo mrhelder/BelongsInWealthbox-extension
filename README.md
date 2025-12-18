@@ -18,11 +18,11 @@ Finally, a browswer extension that does what Wealthbox refuses to do: automatica
 ## Installation
 1. Download directly from the Chrome or Edge extension stores, OR
 2. Download or clone this repository
-3. Open Chrome and navigate to `chrome://extensions/`
+3. Open Chrome or Edge and navigate to `chrome://extensions/` or 'edge://extensions/'
 4. Enable "Developer mode" in the top right
 5. Click "Load unpacked"
 6. Select the folder containing the extension files
-7. The extension will now be active on all web pages
+7. The extension will now be active!
 
 ## Usage
 
