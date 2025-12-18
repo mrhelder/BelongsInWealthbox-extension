@@ -27,43 +27,55 @@ function linkify(node) {
   node.replaceWith(span);
 }
 
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    // Collect text nodes first
-    const textNodes = [];
+function processPhoneNumbers() {
+  // Target the contact inspector container specifically
+  const contactInspector = document.getElementById('contact-inspector');
+  if (!contactInspector) return false;
 
+  // Find all span.address elements in the contact inspector
+  const addressElements = contactInspector.querySelectorAll('span.address');
+  
+  if (addressElements.length === 0) return false;
+  
+  let processed = false;
+  addressElements.forEach(el => {
+    // Walk through text nodes in these elements
     const walker = document.createTreeWalker(
-      document.body,
+      el,
       NodeFilter.SHOW_TEXT,
       null
     );
-
-    let node;
-    while ((node = walker.nextNode())) {
-      textNodes.push(node);
+    const nodesToProcess = [];
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      nodesToProcess.push(textNode);
     }
-
-    // Then process them
-    textNodes.forEach(linkify);
-
-    console.log("[tel-linker] ran");
-  }, 1000);
-});
-
-// Observe for dynamically added content
-const observer = new MutationObserver((mutations) => {
-  mutations.forEach((mutation) => {
-    mutation.addedNodes.forEach((node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const newTextNodes = [];
-        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null);
-        let textNode;
-        while ((textNode = walker.nextNode())) {
-          newTextNodes.push(textNode);
-        }
-        newTextNodes.forEach(linkify);
+    nodesToProcess.forEach(node => {
+      if (phoneRegex.test(node.textContent)) {
+        linkify(node);
+        processed = true;
       }
     });
   });
+  
+  if (processed) {
+    console.log("[tel-linker] linkified phone numbers");
+    return true;
+  }
+  return false;
+}
+
+// Observe for changes to the contact inspector
+const observer = new MutationObserver(() => {
+  processPhoneNumbers();
 });
-observer.observe(document.body, { childList: true, subtree: true });
+
+observer.observe(document.body, { 
+  childList: true, 
+  subtree: true,
+  characterData: true
+});
+
+// Start polling immediately and every 300ms
+processPhoneNumbers();
+setInterval(processPhoneNumbers, 300);
