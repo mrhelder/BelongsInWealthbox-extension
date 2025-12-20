@@ -1,5 +1,4 @@
 const phoneRegex = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
-const processedAddresses = new Set();
 
 function linkify(node) {
   if (node.nodeType !== Node.TEXT_NODE) return;
@@ -17,7 +16,7 @@ function linkify(node) {
     span.append(node.textContent.slice(last, match.index));
 
     const a = document.createElement("a");
-    a.href = "tel:" + match[0];
+    a.href = "tel://" + match[0];
     a.textContent = match[0];
 
     span.append(a);
@@ -40,11 +39,6 @@ function processPhoneNumbers() {
   
   let processed = false;
   addressElements.forEach(el => {
-    const addressText = el.textContent;
-    
-    // Skip if we've already processed this exact address
-    if (processedAddresses.has(addressText)) return;
-    
     // Walk through text nodes in these elements
     const walker = document.createTreeWalker(
       el,
@@ -58,8 +52,9 @@ function processPhoneNumbers() {
     }
     nodesToProcess.forEach(node => {
       if (phoneRegex.test(node.textContent)) {
+        // ensure regex starts from beginning for exec loop inside linkify
+        phoneRegex.lastIndex = 0;
         linkify(node);
-        processedAddresses.add(addressText);
         processed = true;
       }
     });
@@ -77,12 +72,11 @@ const observer = new MutationObserver(() => {
   processPhoneNumbers();
 });
 
+// observe DOM mutations (no characterData polling)
 observer.observe(document.body, { 
   childList: true, 
-  subtree: true,
-  characterData: true
+  subtree: true
 });
 
-// Start polling immediately and every 300ms
+// Start once at load
 processPhoneNumbers();
-setInterval(processPhoneNumbers, 300);
