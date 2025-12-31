@@ -16,7 +16,20 @@ function linkify(node) {
     span.append(node.textContent.slice(last, match.index));
 
     const a = document.createElement("a");
-    a.href = "tel://" + match[0];
+    // Normalize phone number for tel: href — remove formatting and ensure international-style prefix
+    let telDigits = match[0].replace(/[^\d+]/g, '');
+    if (!telDigits.startsWith('+')) {
+      const onlyDigits = telDigits.replace(/[^\d]/g, '');
+      if (onlyDigits.length === 10) {
+        telDigits = '+1' + onlyDigits;
+      } else if (onlyDigits.length === 11 && onlyDigits.startsWith('1')) {
+        telDigits = '+' + onlyDigits;
+      } else {
+        // fallback: prefix plus to whatever digits we have
+        telDigits = '+' + onlyDigits;
+      }
+    }
+    a.href = 'tel:' + telDigits;
     a.textContent = match[0];
 
     span.append(a);
