@@ -1,95 +1,177 @@
+// Single-purpose content script: wait for .contact-info to exist, then linkify phone numbers inside it.
+console.log('[tel-linker] content script loaded at', window.location.href);
+window.__telLinkerPing = { when: Date.now(), href: window.location.href };
+
 const phoneRegex = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+const SKIP_TAGS = new Set([
+  'A',
+  'SCRIPT',
+  'STYLE',
+  'NOSCRIPT',
+  'TEXTAREA',
+  'INPUT',
+  'SELECT',
+  'OPTION',
+  'BUTTON',
+  'CODE',
+  'PRE'
+]);
 
-function linkify(node) {
-  if (node.nodeType !== Node.TEXT_NODE) return;
-  if (!node.parentElement) return;
-  if (node.parentElement.closest("a")) return;
-  if (!phoneRegex.test(node.textContent)) return;
+function linkifyPhoneTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let node;
+  while ((node = walker.nextNode())) nodes.push(node);
 
-  phoneRegex.lastIndex = 0;
+  const linkedNumbers = [];
+  nodes.forEach(textNode => {
+    if (!textNode.textContent) return;
+    phoneRegex.lastIndex = 0;
+    if (!phoneRegex.test(textNode.textContent)) return;
 
-  const span = document.createElement("span");
-  let last = 0;
-  let match;
+    const parent = textNode.parentElement;
+    if (!parent || parent.closest('a')) return;
+    if (!root.contains(textNode)) return;
 
-  while ((match = phoneRegex.exec(node.textContent))) {
-    span.append(node.textContent.slice(last, match.index));
-
-    const a = document.createElement("a");
-    // Normalize phone number for tel: href — remove formatting and ensure international-style prefix
-    let telDigits = match[0].replace(/[^\d+]/g, '');
-    if (!telDigits.startsWith('+')) {
-      const onlyDigits = telDigits.replace(/[^\d]/g, '');
-      if (onlyDigits.length === 10) {
-        telDigits = '+1' + onlyDigits;
-      } else if (onlyDigits.length === 11 && onlyDigits.startsWith('1')) {
-        telDigits = '+' + onlyDigits;
-      } else {
-        // fallback: prefix plus to whatever digits we have
-        telDigits = '+' + onlyDigits;
-      }
+    let el = parent;
+    while (el && el !== root && el !== document.body) {
+      if (SKIP_TAGS.has(el.tagName)) return;
+      if (el.isContentEditable) return;
+      el = el.parentElement;
     }
-    a.href = 'tel:' + telDigits;
-    a.textContent = match[0];
 
-    span.append(a);
-    last = phoneRegex.lastIndex;
+    phoneRegex.lastIndex = 0;
+    const span = document.createElement('span');
+    let last = 0;
+    let match;
+    while ((match = phoneRegex.exec(textNode.textContent))) {
+      span.append(textNode.textContent.slice(last, match.index));
+
+      const a = document.createElement('a');
+      let telDigits = match[0].replace(/[^\d+]/g, '');
+      if (!telDigits.startsWith('+')) {
+        const onlyDigits = telDigits.replace(/[^\d]/g, '');
+        if (onlyDigits.length === 10) {
+          telDigits = '+1' + onlyDigits;
+        } else if (onlyDigits.length === 11 && onlyDigits.startsWith('1')) {
+          telDigits = '+' + onlyDigits;
+        } else {
+          telDigits = '+' + onlyDigits;
+        }
+      }
+      a.href = 'tel:' + telDigits;
+      a.textContent = match[0];
+      linkedNumbers.push(match[0]);
+
+      span.append(a);
+      last = phoneRegex.lastIndex;
+    }
+
+    span.append(textNode.textContent.slice(last));
+    textNode.replaceWith(span);
+  });
+
+  if (linkedNumbers.length) {
+    console.log(`[tel-linker] linkified phone numbers: ${linkedNumbers.join(', ')}`);
+  } else {
+    console.log('[tel-linker] no phone numbers found to linkify (yet)');
   }
-
-  span.append(node.textContent.slice(last));
-  node.replaceWith(span);
+  return linkedNumbers.length;
 }
 
-function processPhoneNumbers() {
-  // Target the contact inspector container specifically
-  const contactInspector = document.getElementById('contact-inspector');
-  if (!contactInspector) return false;
+let currentRoot = null;
+let innerObserver = null;
+let retryTimer = null;
+let retryAttempts = 0;
 
-  // Find all span.address elements in the contact inspector
-  const addressElements = contactInspector.querySelectorAll('span.address');
-  
-  if (addressElements.length === 0) return false;
-  
-  let processed = false;
-  addressElements.forEach(el => {
-    // Walk through text nodes in these elements
-    const walker = document.createTreeWalker(
-      el,
-      NodeFilter.SHOW_TEXT,
-      null
-    );
-    const nodesToProcess = [];
-    let textNode;
-    while ((textNode = walker.nextNode())) {
-      nodesToProcess.push(textNode);
+function ensureLinkified() {
+  const root = document.querySelector('#contact-inspector .contact-info');
+  if (!root) return false;
+  return linkifyPhoneTextNodes(root) > 0;
+}
+
+function startRetryLoop() {
+  if (retryTimer) clearInterval(retryTimer);
+  retryAttempts = 30; // ~7.5s at 250ms
+  retryTimer = setInterval(() => {
+    const done = ensureLinkified();
+    retryAttempts -= 1;
+    if (done || retryAttempts <= 0) {
+      clearInterval(retryTimer);
+      retryTimer = null;
     }
-    nodesToProcess.forEach(node => {
-      if (phoneRegex.test(node.textContent)) {
-        // ensure regex starts from beginning for exec loop inside linkify
-        phoneRegex.lastIndex = 0;
-        linkify(node);
-        processed = true;
+  }, 250);
+}
+
+function linkifyContactInfoIfPresent() {
+  const root = document.querySelector('#contact-inspector .contact-info');
+  if (!root) return false;
+
+  console.log('[tel-linker] contact-info detected, attempting linkify');
+
+  // If the root changed (e.g., SPA navigation swapped the node), rebind the inner observer.
+  if (root !== currentRoot) {
+    if (innerObserver) innerObserver.disconnect();
+    currentRoot = root;
+    innerObserver = new MutationObserver(() => ensureLinkified());
+    innerObserver.observe(currentRoot, { childList: true, subtree: true, characterData: true });
+    // New root, kick off retries.
+    startRetryLoop();
+  }
+
+  ensureLinkified();
+  return true;
+}
+
+function startWatching() {
+  const start = () => {
+    // Always watch the whole document for the contact-info node appearing/reappearing.
+    const outerObserver = new MutationObserver((mutations) => {
+      console.log(`[tel-linker] outer observer fired (${mutations.length} mutations)`);
+      linkifyContactInfoIfPresent();
+    });
+    outerObserver.observe(document.body, { childList: true, subtree: true });
+
+    // Try immediately in case the node is already there.
+    linkifyContactInfoIfPresent();
+
+     // Fallback poll in case observers miss an early insertion.
+    let fallbackTries = 20;
+    const fallback = setInterval(() => {
+      const done = linkifyContactInfoIfPresent();
+      fallbackTries -= 1;
+      if (done || fallbackTries <= 0) clearInterval(fallback);
+    }, 300);
+
+    // Also hook SPA navigation events (pushState/replaceState/popstate) to force a check.
+    const nativePushState = history.pushState;
+    const nativeReplaceState = history.replaceState;
+    function dispatchNavEvent() {
+      linkifyContactInfoIfPresent();
+    }
+    history.pushState = function (...args) {
+      nativePushState.apply(history, args);
+      dispatchNavEvent();
+    };
+    history.replaceState = function (...args) {
+      nativeReplaceState.apply(history, args);
+      dispatchNavEvent();
+    };
+    window.addEventListener('popstate', dispatchNavEvent);
+  };
+
+  // If body is not yet available (document_start), wait until it appears.
+  if (document.body) {
+    start();
+  } else {
+    const bodyObserver = new MutationObserver(() => {
+      if (document.body) {
+        bodyObserver.disconnect();
+        start();
       }
     });
-  });
-  
-  if (processed) {
-    console.log("[tel-linker] linkified phone numbers");
-    return true;
+    bodyObserver.observe(document.documentElement || document, { childList: true, subtree: true });
   }
-  return false;
 }
 
-// Observe for changes to the contact inspector
-const observer = new MutationObserver(() => {
-  processPhoneNumbers();
-});
-
-// observe DOM mutations (no characterData polling)
-observer.observe(document.body, { 
-  childList: true, 
-  subtree: true
-});
-
-// Start once at load
-processPhoneNumbers();
+startWatching();

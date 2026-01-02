@@ -11,15 +11,19 @@
   "permissions": [
     "activeTab"
   ],
+  "host_permissions": [
+    "*://*.crmworkspace.com/*"
+  ],
   "content_scripts": [
     {
       "matches": [
         "*://*.crmworkspace.com/*"
       ],
+      "all_frames": true,
       "js": [
         "content.js"
       ],
-      "run_at": "document_end"
+      "run_at": "document_start"
     }
   ]
 }
