@@ -35,7 +35,7 @@ The extension runs automatically on all Wealthbox workspaces. Phone numbers in C
 
 ## Permissions
 
-- **activeTab**: Used to access and modify Contact record pages to convert phone numbers into clickable links
+- **None**: No Chrome APIs are used in this extension
 
 ## How It Works
 
