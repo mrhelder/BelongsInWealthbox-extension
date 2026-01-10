@@ -8,12 +8,6 @@
     "128": "icons/Wealthbox-icon-RGB-1 Blue.png"
   },
   "description": "Automatically converts phone numbers in Wealthbox Contact records into clickable 'tel:' links.",
-  "permissions": [
-    "activeTab"
-  ],
-  "host_permissions": [
-    "*://*.crmworkspace.com/*"
-  ],
   "content_scripts": [
     {
       "matches": [
