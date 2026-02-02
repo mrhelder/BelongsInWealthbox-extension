@@ -3,6 +3,7 @@ console.log('[tel-linker] content script loaded at', window.location.href);
 window.__telLinkerPing = { when: Date.now(), href: window.location.href };
 
 const phoneRegex = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
+let hasLinkified = false;
 const SKIP_TAGS = new Set([
   'A',
   'SCRIPT',
@@ -72,7 +73,8 @@ function linkifyPhoneTextNodes(root) {
   });
 
   if (linkedNumbers.length) {
-    console.log(`[tel-linker] linkified phone numbers: ${linkedNumbers.join(', ')}`);
+    hasLinkified = true;
+    console.log(`[tel-linker] ✓ linkified phone numbers: ${linkedNumbers.join(', ')}`);
   } else {
     console.log('[tel-linker] no phone numbers found to linkify (yet)');
   }
@@ -92,8 +94,13 @@ function ensureLinkified() {
 
 function startRetryLoop() {
   if (retryTimer) clearInterval(retryTimer);
-  retryAttempts = 30; // ~7.5s at 250ms
+  retryAttempts = 80; // ~20s at 250ms
   retryTimer = setInterval(() => {
+    if (hasLinkified) {
+      clearInterval(retryTimer);
+      retryTimer = null;
+      return;
+    }
     const done = ensureLinkified();
     retryAttempts -= 1;
     if (done || retryAttempts <= 0) {
@@ -113,22 +120,31 @@ function linkifyContactInfoIfPresent() {
   if (root !== currentRoot) {
     if (innerObserver) innerObserver.disconnect();
     currentRoot = root;
-    innerObserver = new MutationObserver(() => ensureLinkified());
+    hasLinkified = false; // Reset flag for new contact
+    innerObserver = new MutationObserver(() => {
+      // Always check for new phone numbers - more content may load dynamically
+      ensureLinkified();
+    });
     innerObserver.observe(currentRoot, { childList: true, subtree: true, characterData: true });
     // New root, kick off retries.
     startRetryLoop();
   }
 
-  ensureLinkified();
-  return true;
+  const result = ensureLinkified();
+  console.log(`[tel-linker] linkify result: ${result ? 'success' : 'no numbers yet'}`);
+  return result;
 }
 
 function startWatching() {
   const start = () => {
     // Always watch the whole document for the contact-info node appearing/reappearing.
+    let observerTimeout;
     const outerObserver = new MutationObserver((mutations) => {
-      console.log(`[tel-linker] outer observer fired (${mutations.length} mutations)`);
-      linkifyContactInfoIfPresent();
+      clearTimeout(observerTimeout);
+      observerTimeout = setTimeout(() => {
+        console.log(`[tel-linker] outer observer fired (${mutations.length} mutations)`);
+        linkifyContactInfoIfPresent();
+      }, 50); // Debounce: wait for mutations to settle
     });
     outerObserver.observe(document.body, { childList: true, subtree: true });
 
@@ -136,11 +152,15 @@ function startWatching() {
     linkifyContactInfoIfPresent();
 
      // Fallback poll in case observers miss an early insertion.
-    let fallbackTries = 20;
+    let fallbackTries = 40; // ~12s at 300ms
     const fallback = setInterval(() => {
-      const done = linkifyContactInfoIfPresent();
+      if (hasLinkified) {
+        clearInterval(fallback);
+        return;
+      }
+      const foundNumbers = linkifyContactInfoIfPresent();
       fallbackTries -= 1;
-      if (done || fallbackTries <= 0) clearInterval(fallback);
+      if (foundNumbers || fallbackTries <= 0) clearInterval(fallback);
     }, 300);
 
     // Also hook SPA navigation events (pushState/replaceState/popstate) to force a check.
@@ -174,4 +194,9 @@ function startWatching() {
   }
 }
 
-startWatching();
+// Ensure DOM is at least interactive before starting
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startWatching);
+} else {
+  startWatching();
+}
