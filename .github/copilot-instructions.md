@@ -1,64 +1,30 @@
-# AI Coding Instructions for BelongsInWealthbox
+# AI development guidelines: BelongsInWealthbox
 
-## Project Overview
-Single-purpose Chrome/Edge Manifest V3 extension that converts phone numbers to clickable `tel:` links on Wealthbox CRM pages (*.crmworkspace.com). The extension runs on all frames as a content script that watches for dynamic DOM changes.
+## Purpose
 
-## Architecture & Key Constraints
+Free, open-source, lightweight Chrome/Edge Manifest V3 extension. Locally turn North American (+1) telephone numbers displayed in Wealthbox contact details into `tel:` links.
 
-### Content Script Strategy ([content.js](../content.js))
-- Runs at `document_start` to catch early DOM insertions
-- **Target Element**: `#contact-inspector .contact-info` - this specific selector is the ONLY area where phone numbers should be linkified
-- **SPA Awareness**: Wealthbox is a single-page app - the script hooks `history.pushState/replaceState/popstate` to detect navigation without page reloads
-- **Observer Pattern**: Uses dual MutationObservers:
-  - Outer observer: watches entire `document.body` for the target element to appear
-  - Inner observer: watches the target element subtree for phone number text changes
+## Required design constraints
 
-### Phone Number Detection
-- Regex: `/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g` - matches US phone formats with various separators
-- **Normalization**: Always normalizes to `tel:+1XXXXXXXXXX` format (adds +1 prefix for 10-digit US numbers)
-- **Skip Tags**: Never linkify inside: A, SCRIPT, STYLE, TEXTAREA, INPUT, SELECT, BUTTON, CODE, PRE, or any `contentEditable` elements
+- Completely local processing; no servers, fetch/XHR, external API calls, telemetry, analytics, background services, external libraries or build step.
+- One content script, `content.js`, injected only for HTTPS Wealthbox pages by `manifest.json`.
+- DOM changes must stay within `#contact-inspector .contact-info`. This is an internal Wealthbox DOM selector, not a documented API; verify against the live UI before changing it.
+- Never alter existing anchors, form inputs, editable fields, or other unrelated content.
+- Use safe DOM creation and `textContent`, not interpolated `innerHTML` with contact information.
+- Do not log phone numbers, contact URLs, or other private client data.
+- Match NANP (+1) numbers conservatively; reject longer numeric identifiers, impossible NANP area/exchange prefixes, and non-NANP international prefixes. Keep displayed extension text.
+- Native `tel:` links hand off to the browser/OS registered calling handler, not a Zoom API.
 
-### Reliability Mechanisms
-The script employs multiple overlapping strategies because the target element loads asynchronously:
-1. **Mutation observers** - primary detection method
-2. **Retry loop** - 30 attempts × 250ms when root element detected but no phone numbers found yet
-3. **Fallback polling** - 20 attempts × 300ms as safety net for missed observer events
+## Architecture
 
-**Why this complexity?** Wealthbox lazily loads contact info content, so the `#contact-inspector .contact-info` node may exist before phone numbers are inserted into it.
+The code uses one outer MutationObserver to find or rebind the target contact-info element when Wealthbox changes its SPA DOM, and one inner MutationObserver to process text additions/changes in that element. Avoid polling loops, monkey-patching History API methods, or adding extension permissions unless a reproducible test demonstrates the need.
 
-## Development Workflow
+## Verification before release
 
-### Testing Locally
-1. Load extension via `chrome://extensions/` → "Load unpacked"
-2. Navigate to any Wealthbox workspace contact page
-3. Open DevTools Console - look for `[tel-linker]` prefixed logs to verify:
-   - Script loaded (`content script loaded at...`)
-   - Target element detection (`contact-info detected, attempting linkify`)
-   - Linkification results (`linkified phone numbers: ...` or `no phone numbers found to linkify`)
+Run `node --test tests/extension.test.mjs` for dependency-free manifest and phone parsing tests. These **do not cover browser DOM integration**. Manually verify Chrome and Edge with actual Wealthbox records: initial and delayed rendering, navigation, updated numbers, existing links, editable controls, duplicate prevention, and configured `tel:` call handler.
 
-### Debugging Tips
-- Check `window.__telLinkerPing` in console to verify script injection
-- If linkification fails, verify the DOM structure hasn't changed: inspect for `#contact-inspector .contact-info`
-- Log verbosity is intentional - each observer firing logs to help diagnose timing issues
+## Authoritative references
 
-## Code Conventions
-
-### DOM Manipulation Safety
-- Always check `root.contains(textNode)` before replacing to avoid manipulating detached nodes
-- Never wrap already-linked text (check `parent.closest('a')` before processing)
-- Use `document.createElement('span')` wrapper when replacing text nodes with mixed content
-
-### Performance Patterns
-- Collect all text nodes first (`createTreeWalker` → array), then iterate - avoids live collection issues
-- Use `Set` for tag name lookups (`SKIP_TAGS`) instead of array includes
-- Clear retry timers aggressively to prevent memory leaks
-
-## Manifest V3 Specifics
-- No background scripts or service workers needed for this use case
-- `all_frames: true` required because Wealthbox contact info may load in iframes
-- No permissions declared - pure DOM manipulation requires zero Chrome APIs
-
-## What NOT to Change
-- Don't remove the fallback polling or retry mechanisms - they're essential for reliability
-- Don't simplify the observer setup - the dual-observer pattern handles both initial load and dynamic updates
-- Don't modify `run_at: "document_start"` - later injection misses early DOM insertions
+- Chrome content script manifest: https://developer.chrome.com/docs/extensions/reference/manifest/content-scripts
+- MDN MutationObserver: https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver/observe
+- RFC 3966 telephone URIs: https://www.rfc-editor.org/rfc/rfc3966
