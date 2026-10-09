@@ -1,202 +1,111 @@
-// Single-purpose content script: wait for .contact-info to exist, then linkify phone numbers inside it.
-console.log('[tel-linker] content script loaded at', window.location.href);
-window.__telLinkerPing = { when: Date.now(), href: window.location.href };
+// Enhance phone numbers in Wealthbox contact details without accessing any external service.
+(() => {
+  'use strict';
 
-const phoneRegex = /\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
-let hasLinkified = false;
-const SKIP_TAGS = new Set([
-  'A',
-  'SCRIPT',
-  'STYLE',
-  'NOSCRIPT',
-  'TEXTAREA',
-  'INPUT',
-  'SELECT',
-  'OPTION',
-  'BUTTON',
-  'CODE',
-  'PRE'
-]);
+  const CONTACT_INFO_SELECTOR = '#contact-inspector .contact-info';
+  // Include a country prefix in the candidate so non-US prefixes are rejected as a whole.
+  // Boundaries prevent matching the first 10 digits of longer identifiers.
+  const PHONE_PATTERN = /(?<![A-Za-z0-9+])(?:(?:\+\d{1,3}|1)[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}(?![A-Za-z0-9])/g;
+  const SKIP_TAGS = new Set([
+    'A', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT',
+    'SELECT', 'OPTION', 'BUTTON', 'CODE', 'PRE'
+  ]);
 
-function linkifyPhoneTextNodes(root) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-  const nodes = [];
-  let node;
-  while ((node = walker.nextNode())) nodes.push(node);
+  let activeRoot = null;
+  let contactObserver = null;
 
-  const linkedNumbers = [];
-  nodes.forEach(textNode => {
-    if (!textNode.textContent) return;
-    phoneRegex.lastIndex = 0;
-    if (!phoneRegex.test(textNode.textContent)) return;
-
-    const parent = textNode.parentElement;
-    if (!parent || parent.closest('a')) return;
-    if (!root.contains(textNode)) return;
-
-    let el = parent;
-    while (el && el !== root && el !== document.body) {
-      if (SKIP_TAGS.has(el.tagName)) return;
-      if (el.isContentEditable) return;
-      el = el.parentElement;
-    }
-
-    phoneRegex.lastIndex = 0;
-    const span = document.createElement('span');
-    let last = 0;
-    let match;
-    while ((match = phoneRegex.exec(textNode.textContent))) {
-      span.append(textNode.textContent.slice(last, match.index));
-
-      const a = document.createElement('a');
-      let telDigits = match[0].replace(/[^\d+]/g, '');
-      if (!telDigits.startsWith('+')) {
-        const onlyDigits = telDigits.replace(/[^\d]/g, '');
-        if (onlyDigits.length === 10) {
-          telDigits = '+1' + onlyDigits;
-        } else if (onlyDigits.length === 11 && onlyDigits.startsWith('1')) {
-          telDigits = '+' + onlyDigits;
-        } else {
-          telDigits = '+' + onlyDigits;
-        }
+  function isExcluded(textNode) {
+    for (let element = textNode.parentElement; element; element = element.parentElement) {
+      if (SKIP_TAGS.has(element.tagName) || element.isContentEditable || element.hasAttribute('contenteditable')) {
+        return true;
       }
-      a.href = 'tel:' + telDigits;
-      a.textContent = match[0];
-      linkedNumbers.push(match[0]);
+    }
+    return false;
+  }
 
-      span.append(a);
-      last = phoneRegex.lastIndex;
+  function toTelHref(number) {
+    const digits = number.replace(/\D/g, '');
+    const nationalNumber = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+    // NANP NPA-NXX-XXXX: area and central-office codes begin with 2 through 9.
+    if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(nationalNumber)) return null;
+    return `tel:+1${nationalNumber}`; // Ignore unsupported country codes instead of guessing.
+  }
+
+  function linkifyTextNode(textNode) {
+    if (!textNode.isConnected || !activeRoot.contains(textNode) || isExcluded(textNode)) return;
+
+    const text = textNode.nodeValue;
+    if (!text) return;
+
+    const replacement = document.createDocumentFragment();
+    let lastIndex = 0;
+    let found = false;
+
+    for (const match of text.matchAll(PHONE_PATTERN)) {
+      const href = toTelHref(match[0]);
+      if (!href) continue;
+
+      replacement.append(document.createTextNode(text.slice(lastIndex, match.index)));
+      const link = document.createElement('a');
+      link.href = href;
+      link.textContent = match[0];
+      replacement.append(link);
+      lastIndex = match.index + match[0].length;
+      found = true;
     }
 
-    span.append(textNode.textContent.slice(last));
-    textNode.replaceWith(span);
-  });
-
-  if (linkedNumbers.length) {
-    hasLinkified = true;
-    console.log(`[tel-linker] ✓ linkified phone numbers: ${linkedNumbers.join(', ')}`);
-  } else {
-    console.log('[tel-linker] no phone numbers found to linkify (yet)');
+    if (!found) return;
+    replacement.append(document.createTextNode(text.slice(lastIndex)));
+    textNode.replaceWith(replacement);
   }
-  return linkedNumbers.length;
-}
 
-let currentRoot = null;
-let innerObserver = null;
-let retryTimer = null;
-let retryAttempts = 0;
-
-function ensureLinkified() {
-  const root = document.querySelector('#contact-inspector .contact-info');
-  if (!root) return false;
-  return linkifyPhoneTextNodes(root) > 0;
-}
-
-function startRetryLoop() {
-  if (retryTimer) clearInterval(retryTimer);
-  retryAttempts = 80; // ~20s at 250ms
-  retryTimer = setInterval(() => {
-    if (hasLinkified) {
-      clearInterval(retryTimer);
-      retryTimer = null;
+  function linkifyInNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      linkifyTextNode(node);
       return;
     }
-    const done = ensureLinkified();
-    retryAttempts -= 1;
-    if (done || retryAttempts <= 0) {
-      clearInterval(retryTimer);
-      retryTimer = null;
-    }
-  }, 250);
-}
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
 
-function linkifyContactInfoIfPresent() {
-  const root = document.querySelector('#contact-inspector .contact-info');
-  if (!root) return false;
-
-  console.log('[tel-linker] contact-info detected, attempting linkify');
-
-  // If the root changed (e.g., SPA navigation swapped the node), rebind the inner observer.
-  if (root !== currentRoot) {
-    if (innerObserver) innerObserver.disconnect();
-    currentRoot = root;
-    hasLinkified = false; // Reset flag for new contact
-    innerObserver = new MutationObserver(() => {
-      // Always check for new phone numbers - more content may load dynamically
-      ensureLinkified();
-    });
-    innerObserver.observe(currentRoot, { childList: true, subtree: true, characterData: true });
-    // New root, kick off retries.
-    startRetryLoop();
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    for (const textNode of textNodes) linkifyTextNode(textNode);
   }
 
-  const result = ensureLinkified();
-  console.log(`[tel-linker] linkify result: ${result ? 'success' : 'no numbers yet'}`);
-  return result;
-}
+  function observeContactInfo() {
+    const root = document.querySelector(CONTACT_INFO_SELECTOR);
+    if (root === activeRoot) return;
 
-function startWatching() {
-  const start = () => {
-    // Always watch the whole document for the contact-info node appearing/reappearing.
-    let observerTimeout;
-    const outerObserver = new MutationObserver((mutations) => {
-      clearTimeout(observerTimeout);
-      observerTimeout = setTimeout(() => {
-        console.log(`[tel-linker] outer observer fired (${mutations.length} mutations)`);
-        linkifyContactInfoIfPresent();
-      }, 50); // Debounce: wait for mutations to settle
-    });
-    outerObserver.observe(document.body, { childList: true, subtree: true });
+    if (contactObserver) contactObserver.disconnect();
+    activeRoot = root;
+    if (!root) return;
 
-    // Try immediately in case the node is already there.
-    linkifyContactInfoIfPresent();
-
-     // Fallback poll in case observers miss an early insertion.
-    let fallbackTries = 40; // ~12s at 300ms
-    const fallback = setInterval(() => {
-      if (hasLinkified) {
-        clearInterval(fallback);
-        return;
+    contactObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'characterData') {
+          linkifyInNode(mutation.target);
+        } else {
+          for (const addedNode of mutation.addedNodes) linkifyInNode(addedNode);
+        }
       }
-      const foundNumbers = linkifyContactInfoIfPresent();
-      fallbackTries -= 1;
-      if (foundNumbers || fallbackTries <= 0) clearInterval(fallback);
-    }, 300);
+    });
+    contactObserver.observe(root, { childList: true, characterData: true, subtree: true });
+    linkifyInNode(root);
+  }
 
-    // Also hook SPA navigation events (pushState/replaceState/popstate) to force a check.
-    const nativePushState = history.pushState;
-    const nativeReplaceState = history.replaceState;
-    function dispatchNavEvent() {
-      linkifyContactInfoIfPresent();
-    }
-    history.pushState = function (...args) {
-      nativePushState.apply(history, args);
-      dispatchNavEvent();
-    };
-    history.replaceState = function (...args) {
-      nativeReplaceState.apply(history, args);
-      dispatchNavEvent();
-    };
-    window.addEventListener('popstate', dispatchNavEvent);
-  };
+  function start() {
+    if (!document.body) return;
+    observeContactInfo();
+    // A Wealthbox SPA can replace the entire contact inspector without a page reload.
+    new MutationObserver(observeContactInfo).observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
 
-  // If body is not yet available (document_start), wait until it appears.
-  if (document.body) {
-    start();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
   } else {
-    const bodyObserver = new MutationObserver(() => {
-      if (document.body) {
-        bodyObserver.disconnect();
-        start();
-      }
-    });
-    bodyObserver.observe(document.documentElement || document, { childList: true, subtree: true });
+    start();
   }
-}
-
-// Ensure DOM is at least interactive before starting
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', startWatching);
-} else {
-  startWatching();
-}
+})();
